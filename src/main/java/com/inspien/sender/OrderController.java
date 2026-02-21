@@ -23,4 +23,10 @@ public class OrderController {
         CreateOrderResult orderSync = orderService.createOrderSync(request.base64Xml());
         return ResponseEntity.ok(orderSync);
     }
+
+    @PostMapping("/outbox")
+    public ResponseEntity<CreateOrderResult> createOutBOx(@RequestBody @Valid CreateOrderRequest request) {
+        CreateOrderResult orderSync = orderService.createOrderOutbox(request.base64Xml());
+        return ResponseEntity.ok(orderSync);
+    }
 }
