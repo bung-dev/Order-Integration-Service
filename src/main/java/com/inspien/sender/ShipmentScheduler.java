@@ -30,4 +30,20 @@ public class ShipmentScheduler {
             MDC.remove("traceId");
         }
     }
+
+    @Scheduled(fixedDelayString = "${shipment.scheduler.delay}")
+    public void runOutbox(){
+        long startTime = System.currentTimeMillis();
+        String traceId = UUID.randomUUID().toString();
+        MDC.put("traceId", traceId);
+        try {
+            log.info("[BATCH:SCHEDULER OUTBOX] start");
+            shipmentService.runOutbox(applicationKey);
+        } finally {
+            long endTime = System.currentTimeMillis();
+            long durationTime = endTime - startTime;
+            log.info("[BATCH:SCHEDULER OUTBOX] durationTime={}",durationTime);
+            MDC.remove("traceId");
+        }
+    }
 }
