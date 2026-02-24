@@ -30,7 +30,6 @@ public class ShipmentService {
     private final OutboxRepository outboxRepository;
     private final FileWriter fileWriter;
     private final SftpUploader sftpUploader;
-    private final IdGenerator idGenerator;
 
     @Value("${order.participant-name}")
     private String participantName;
