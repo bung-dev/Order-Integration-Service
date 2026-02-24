@@ -66,7 +66,11 @@
 | ITEM_NAME | VARCHAR(255) | 상품명 |
 | PRICE | VARCHAR(255) | 상품 가격 |
 | STATUS | VARCHAR(1) | 상태 값 |
+| UPDATED | TIMESTAMP | 최종 수정 일시 |
 | PROCESSED | TINYINT(1) | 처리 여부 (0: 미처리, 1: 완료) |
+
+## 🛠 유지보수 및 관리
+- **배치 정리 (Cleanup)**: 처리 완료(`PROCESSED = 1`)된 아웃박스 데이터를 주기적으로 삭제하여 DB 성능을 유지합니다. (`ShipmentScheduler.runDeleteProcessed`)
 
 ## 🔌 API 명세
 ### POST `/api/order` (동기 방식)
