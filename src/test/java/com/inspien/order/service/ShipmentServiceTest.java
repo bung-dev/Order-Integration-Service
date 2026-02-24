@@ -1,6 +1,7 @@
 package com.inspien.order.service;
 
 import com.inspien.receiver.jdbc.OrderRepository;
+import com.inspien.receiver.jdbc.OutboxRepository;
 import com.inspien.receiver.jdbc.ShipmentRepository;
 import com.inspien.receiver.jdbc.dto.PendingOrderRow;
 import org.junit.jupiter.api.DisplayName;
@@ -24,6 +25,7 @@ class ShipmentServiceTest {
 
     @Mock private OrderRepository orderRepository;
     @Mock private ShipmentRepository shipmentRepository;
+    @Mock private OutboxRepository outboxRepository;
     @Mock private IdGenerator idGenerator;
 
     @Test
@@ -47,5 +49,18 @@ class ShipmentServiceTest {
         verify(orderRepository).updateStatusToY(eq(appKey), argThat(list -> 
             list.size() == 1 && list.contains("ORD1")
         ));
+    }
+
+    @Test
+    @DisplayName("처리 완료된 Outbox 데이터 삭제 확인")
+    void cleanupProcessedOutbox_CallsRepository() {
+        // given
+        String appKey = "TEST_KEY";
+
+        // when
+        shipmentService.cleanupProcessedOutbox(appKey);
+
+        // then
+        verify(outboxRepository).deleteProcessed(appKey);
     }
 }
