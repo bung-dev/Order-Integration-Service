@@ -24,6 +24,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.LocalDateTime;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -181,6 +182,7 @@ public class OrderService {
                                     .itemName(o.getItemName())
                                     .price(o.getPrice())
                                     .status(o.getStatus())
+                                    .updated(LocalDateTime.now())
                                     .processed(false)
                                     .build())
                             .toList();
