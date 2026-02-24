@@ -64,7 +64,7 @@ public class OutboxRepository {
     public int updateProcessed(String applicantKey, List<String> orderIds) {
         String sql = """
                 UPDATE OUTBOX_TB
-                SET PROCESSED = true, UPDATED = CURRENT_TIMESTAMP
+                SET PROCESSED = true, UPDATED = CURRENT_TIMESTAMP , STATUS = 'Y'
                 WHERE APPLICANT_KEY = :applicantKey AND ORDER_ID IN (:orderIds)
                 """;
         MapSqlParameterSource params = new MapSqlParameterSource()
