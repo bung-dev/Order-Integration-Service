@@ -106,4 +106,10 @@ public class ShipmentService {
             log.error("[BATCH OUTBOX] process_fail", e);
         }
     }
+
+    @Transactional
+    public void cleanupProcessedOutbox(String applicantKey) {
+        int deleted = outboxRepository.deleteProcessed(applicantKey);
+        log.info("[BATCH OUTBOX] cleaned_up deleted={}", deleted);
+    }
 }
