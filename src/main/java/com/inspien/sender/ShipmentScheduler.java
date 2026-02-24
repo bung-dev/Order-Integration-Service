@@ -46,4 +46,20 @@ public class ShipmentScheduler {
             MDC.remove("traceId");
         }
     }
+
+    @Scheduled(fixedDelayString = "${shipment.scheduler.delay}")
+    public void runDeleteProcessed(){
+        long startTime = System.currentTimeMillis();
+        String traceId = UUID.randomUUID().toString();
+        MDC.put("traceId", traceId);
+        try {
+            log.info("[BATCH:SCHEDULER DeleteProcessed] start");
+            shipmentService.cleanupProcessedOutbox(applicationKey);
+        } finally {
+            long endTime = System.currentTimeMillis();
+            long durationTime = endTime - startTime;
+            log.info("[BATCH:SCHEDULER DeleteProcessed] durationTime={}",durationTime);
+            MDC.remove("traceId");
+        }
+    }
 }
