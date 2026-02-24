@@ -4,6 +4,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
+
 @Getter
 @Builder
 public class Outbox {
@@ -25,6 +27,8 @@ public class Outbox {
     private final String price;
 
     private final String status;
+
+    private final LocalDateTime updated;
 
     @Builder.Default
     private Boolean processed = false;
