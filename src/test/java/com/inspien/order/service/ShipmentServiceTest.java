@@ -2,6 +2,7 @@ package com.inspien.order.service;
 
 import com.inspien.receiver.jdbc.OrderRepository;
 import com.inspien.receiver.jdbc.ShipmentRepository;
+import com.inspien.receiver.jdbc.OutboxRepository;
 import com.inspien.receiver.jdbc.dto.PendingOrderRow;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -24,6 +26,7 @@ class ShipmentServiceTest {
 
     @Mock private OrderRepository orderRepository;
     @Mock private ShipmentRepository shipmentRepository;
+    @Mock private OutboxRepository outboxRepository;
     @Mock private IdGenerator idGenerator;
 
     @Test
@@ -47,5 +50,19 @@ class ShipmentServiceTest {
         verify(orderRepository).updateStatusToY(eq(appKey), argThat(list -> 
             list.size() == 1 && list.contains("ORD1")
         ));
+    }
+
+    @Test
+    @DisplayName("처리 완료된 Outbox 레코드 삭제 확인")
+    void cleanupProcessedOutbox_DeletesProcessedRecords() {
+        // given
+        String appKey = "LJH000009";
+        when(outboxRepository.deleteProcessed(appKey)).thenReturn(3);
+
+        // when
+        shipmentService.cleanupProcessedOutbox(appKey);
+
+        // then
+        verify(outboxRepository, times(1)).deleteProcessed(appKey);
     }
 }
