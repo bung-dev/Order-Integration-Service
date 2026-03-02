@@ -46,4 +46,16 @@ public class ShipmentScheduler {
             MDC.remove("traceId");
         }
     }
+
+    @Scheduled(fixedDelayString = "${shipment.scheduler.cleanup-delay:3600000}")
+    public void runOutboxCleanup() {
+        String traceId = UUID.randomUUID().toString();
+        MDC.put("traceId", traceId);
+        try {
+            log.info("[BATCH:SCHEDULER CLEANUP] start");
+            shipmentService.cleanupProcessedOutbox(applicationKey);
+        } finally {
+            MDC.remove("traceId");
+        }
+    }
 }
