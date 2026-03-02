@@ -26,7 +26,7 @@ public class FileWriter {
             Path dir = Paths.get(outDir);
             Files.createDirectories(dir);
 
-            String filename = "INSPIEN_" + participantName + "_" + LocalDateTime.now().format(FMT) + ".txt";
+            String filename = "INSPIEN_[" + participantName + "]_[" + LocalDateTime.now().format(FMT) + "].txt";
             Path file = dir.resolve(filename);
 
             List<Order> sorted = orders.stream()
