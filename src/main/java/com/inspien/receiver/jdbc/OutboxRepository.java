@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.jdbc.core.namedparam.SqlParameterSourceUtils;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -69,14 +70,17 @@ public class OutboxRepository {
         return template.update(sql, params);
     }
 
-    public int deleteProcessed(String applicantKey) {
+    public int deleteProcessedOldData(String applicantKey, int days) {
         String sql = """
                 DELETE FROM OUTBOX_TB
                 WHERE APPLICANT_KEY = :applicantKey
                   AND PROCESSED = true
+                  AND UPDATED < :cutoffDate
                 """;
+        LocalDateTime cutoffDate = LocalDateTime.now().minusDays(days);
         MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("applicantKey", applicantKey);
+                .addValue("applicantKey", applicantKey)
+                .addValue("cutoffDate", cutoffDate);
         return template.update(sql, params);
     }
 }
