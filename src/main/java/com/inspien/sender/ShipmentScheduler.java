@@ -53,7 +53,7 @@ public class ShipmentScheduler {
         MDC.put("traceId", traceId);
         try {
             log.info("[BATCH:SCHEDULER CLEANUP] start");
-            shipmentService.cleanupProcessedOutbox(applicationKey);
+            shipmentService.cleanupOldOutbox(applicationKey);
         } finally {
             MDC.remove("traceId");
         }
