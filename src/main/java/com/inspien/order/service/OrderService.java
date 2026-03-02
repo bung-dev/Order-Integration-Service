@@ -1,5 +1,6 @@
 package com.inspien.order.service;
 
+import com.inspien.common.config.properties.AppProperties;
 import com.inspien.mapper.dto.FlattenResult;
 import com.inspien.order.domain.Outbox;
 import com.inspien.receiver.jdbc.BatchResult;
@@ -17,7 +18,6 @@ import com.inspien.sender.dto.CreateOrderResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -44,12 +44,7 @@ public class OrderService {
     private final FileWriter fileWriter;
     private final SftpUploader sftpUploader;
     private final OutboxRepository outboxRepository;
-
-    @Value("${order.max-retry:50}")
-    private int maxRetry;
-
-    @Value("${order.participant-name}")
-    private String participantName;
+    private final AppProperties appProperties;
 
     public CreateOrderResult createOrderOutbox(String base64Xml) {
         long startTime = System.currentTimeMillis();
@@ -95,7 +90,7 @@ public class OrderService {
         }
     }
 
-    public void setSftpUploader(Path file){
+    public void setSftpUploader(Path file) {
         try {
             sftpUploader.upload(file);
             log.info("[ORDER:SFTP] upload_ok file={}", file.getFileName());
@@ -109,7 +104,6 @@ public class OrderService {
             }
             throw ErrorCode.SFTP_SEND_FAIL.exception();
         }
-
     }
 
     public CreateOrderResult createOrderSync(String base64Xml) {
@@ -149,7 +143,7 @@ public class OrderService {
             long endTime = System.currentTimeMillis();
             long durationTime = endTime - startTime;
 
-            log.info("[ORDER] durationTime={}",durationTime);
+            log.info("[ORDER] durationTime={}", durationTime);
             return result;
         } finally {
             MDC.remove("traceId");
@@ -161,6 +155,7 @@ public class OrderService {
             throw ErrorCode.VALIDATION_ERROR.exception();
         }
 
+        int maxRetry = appProperties.getMaxRetry();
         TransactionTemplate requiresNewTx = requiresNewTemplate();
 
         for (int attempt = 1; attempt <= maxRetry; attempt++) {
@@ -212,6 +207,8 @@ public class OrderService {
             throw ErrorCode.VALIDATION_ERROR.exception();
         }
 
+        int maxRetry = appProperties.getMaxRetry();
+        String participantName = appProperties.getParticipantName();
         TransactionTemplate requiresNewTx = requiresNewTemplate();
 
         for (int attempt = 1; attempt <= maxRetry; attempt++) {

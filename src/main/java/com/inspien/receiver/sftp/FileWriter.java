@@ -1,9 +1,10 @@
 package com.inspien.receiver.sftp;
 
+import com.inspien.common.config.properties.AppProperties;
 import com.inspien.common.exception.ErrorCode;
 import com.inspien.order.domain.Order;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -15,15 +16,15 @@ import java.util.List;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class FileWriter {
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
-    @Value("${file.out-dir}")
-    private String outDir;
+    private final AppProperties appProperties;
 
     public Path write(List<Order> orders, String participantName) {
         try {
-            Path dir = Paths.get(outDir);
+            Path dir = Paths.get(appProperties.getOutDir());
             Files.createDirectories(dir);
 
             String filename = "INSPIEN_[" + participantName + "]_[" + LocalDateTime.now().format(FMT) + "].txt";
@@ -56,7 +57,7 @@ public class FileWriter {
         } catch (IOException e) {
             log.error("[FILE] write_fail reason=io_error participantName={}", participantName, e);
             throw ErrorCode.FILE_WRITE_FAIL.exception();
-        } catch (InvalidPathException e){
+        } catch (InvalidPathException e) {
             log.error("[FILE] write_fail reason=invalid_path participantName={}", participantName, e);
             throw ErrorCode.INVALID_PATH.exception();
         }

@@ -1,5 +1,6 @@
 package com.inspien.order.service;
 
+import com.inspien.common.config.properties.AppProperties;
 import com.inspien.order.domain.Order;
 import com.inspien.order.domain.Outbox;
 import com.inspien.receiver.jdbc.OrderRepository;
@@ -11,11 +12,9 @@ import com.inspien.receiver.sftp.FileWriter;
 import com.inspien.receiver.sftp.SftpUploader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,12 +30,7 @@ public class ShipmentService {
     private final FileWriter fileWriter;
     private final SftpUploader sftpUploader;
     private final IdGenerator idGenerator;
-
-    @Value("${order.participant-name}")
-    private String participantName;
-
-    @Value("${outbox.retention-days:7}")
-    private int retentionDays;
+    private final AppProperties appProperties;
 
     @Transactional
     public void run(String applicantKey) {
@@ -96,7 +90,7 @@ public class ShipmentService {
                 .toList();
 
         try {
-            Path file = fileWriter.write(orders, participantName);
+            Path file = fileWriter.write(orders, appProperties.getParticipantName());
             log.info("[BATCH OUTBOX:FILE] created file={}", file.getFileName());
 
             sftpUploader.upload(file);
@@ -113,6 +107,7 @@ public class ShipmentService {
 
     @Transactional
     public void cleanupOldOutbox(String applicantKey) {
+        int retentionDays = appProperties.getRetentionDays();
         int deletedCount = outboxRepository.deleteProcessedOldData(applicantKey, retentionDays);
         if (deletedCount > 0) {
             log.info("[BATCH:CLEANUP] Deleted {} old outbox records (older than {} days) for key: {}", deletedCount, retentionDays, applicantKey);

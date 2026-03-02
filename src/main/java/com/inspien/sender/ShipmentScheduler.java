@@ -1,10 +1,10 @@
 package com.inspien.sender;
 
+import com.inspien.common.config.properties.AppProperties;
 import com.inspien.order.service.ShipmentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -15,45 +15,43 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ShipmentScheduler {
     private final ShipmentService shipmentService;
+    private final AppProperties appProperties;
 
-    @Value("${application.key}")
-    private String applicationKey;
-
-    @Scheduled(fixedDelayString = "${shipment.scheduler.delay}")
+    @Scheduled(fixedDelayString = "${app.scheduler-delay}")
     public void run() {
         String traceId = UUID.randomUUID().toString();
         MDC.put("traceId", traceId);
         try {
             log.info("[BATCH:SCHEDULER] start");
-            shipmentService.run(applicationKey);
+            shipmentService.run(appProperties.getKey());
         } finally {
             MDC.remove("traceId");
         }
     }
 
-    @Scheduled(fixedDelayString = "${shipment.scheduler.delay}")
-    public void runOutbox(){
+    @Scheduled(fixedDelayString = "${app.scheduler-delay}")
+    public void runOutbox() {
         long startTime = System.currentTimeMillis();
         String traceId = UUID.randomUUID().toString();
         MDC.put("traceId", traceId);
         try {
             log.info("[BATCH:SCHEDULER OUTBOX] start");
-            shipmentService.runOutbox(applicationKey);
+            shipmentService.runOutbox(appProperties.getKey());
         } finally {
             long endTime = System.currentTimeMillis();
             long durationTime = endTime - startTime;
-            log.info("[BATCH:SCHEDULER OUTBOX] durationTime={}",durationTime);
+            log.info("[BATCH:SCHEDULER OUTBOX] durationTime={}", durationTime);
             MDC.remove("traceId");
         }
     }
 
-    @Scheduled(fixedDelayString = "${shipment.scheduler.cleanup-delay:3600000}")
+    @Scheduled(fixedDelayString = "${app.cleanup-delay:3600000}")
     public void runOutboxCleanup() {
         String traceId = UUID.randomUUID().toString();
         MDC.put("traceId", traceId);
         try {
             log.info("[BATCH:SCHEDULER CLEANUP] start");
-            shipmentService.cleanupOldOutbox(applicationKey);
+            shipmentService.cleanupOldOutbox(appProperties.getKey());
         } finally {
             MDC.remove("traceId");
         }
