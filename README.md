@@ -1,111 +1,75 @@
 ﻿# Integration Service (EAI)
 
-온라인 쇼핑몰 주문 데이터를 연계 처리하는 Spring Boot 기반 서비스입니다.  
-주문 생성 API를 통해 데이터를 수신하여 파싱/검증 후 DB에 적재하고, 회계용 영수증 파일을 생성하여 SFTP로 전송합니다.  
-또한, 배치 스케줄러를 통해 미전송 주문 데이터를 주기적으로 운송사 DB(Shipment)로 전달합니다.
+온라인 쇼핑몰 주문 데이터를 안정적이고 빠르게 연계 처리하는 **Spring Boot 기반 EAI(Enterprise Application Integration) 서비스**입니다.  
 
-## 🛠 기술 스택
-- **Framework**: Spring Boot 4.0.2
-- **Java**: JDK 17
-- **Database**: Oracle (Main/Shipment), MySQL (Local Support)
-- **Library**: Spring Integration SFTP, Jackson XML, Lombok, JDBC Template
-- **Build**: Gradle
+본 서비스는 외부 시스템(SFTP)과의 동기적 결합을 제거하기 위해 **Outbox 패턴**을 도입하였으며, 정교한 트랜잭션 관리와 자동화된 데이터 관리(Cleanup) 기능을 제공합니다.
 
-## 🏗 아키텍처
-![아키텍처](https://github.com/user-attachments/assets/434f4ccd-de4d-4ac3-ba38-d342dfe9674a)
+---
 
-## 🚀 주요 기능
-1. **주문 API 수신**: Base64 인코딩 및 EUC-KR 형식의 XML 데이터를 수신합니다.
-2. **데이터 처리**: XML 파싱, 유효성 검증, 데이터 매핑(Flattening)을 수행합니다.
-3. **아웃박스 패턴(Outbox Pattern)**: DB 저장과 SFTP 전송을 분리하여 응답 속도를 혁신적으로 개선하고 시스템 안정성을 확보합니다.
-4. **영수증 생성 및 전송**: 주문 정보를 텍스트 파일로 생성하여 SFTP 서버로 전송합니다.
-5. **배치 연계**: 스케줄링을 통해 `ORDER_TB` 및 `OUTBOX_TB`의 미전송 데이터를 처리합니다.
-6. **트랜잭션 보장**: DB 적재와 아웃박스 데이터 저장을 하나의 트랜잭션으로 관리하여 데이터 일관성을 유지합니다.
+## 🚀 핵심 기능 및 비즈니스 로직
 
-## 📈 성능 최적화 결과
+### 1. 주문 데이터 통합 및 수신
+- **API 수신**: Base64 인코딩 및 EUC-KR 형식의 대용량 XML 주문 데이터를 REST API를 통해 수신합니다.
+- **데이터 변환**: Jackson XML 라이브러리를 통해 계층형 데이터를 평면화(Flattening)하고, 유효성 검증을 수행합니다.
+
+### 2. 고성능 아웃박스 패턴 (Outbox Pattern)
+- **응답 속도 개선**: DB 저장(Local Transaction)과 파일 전송(External Integration)을 분리하여 클라이언트 응답 시간을 혁신적으로 개선하였습니다. (평균 **130ms**)
+- **배치 비동기 전송**: `ShipmentScheduler`가 백그라운드에서 `OUTBOX_TB`의 미처리 데이터를 감시하여 파일 생성 및 SFTP 업로드를 수행합니다.
+
+### 3. 안정적인 트랜잭션 관리
+- **재시도 전략**: 중복 주문 번호 발생 시 `REQUIRES_NEW` 전파 속성을 활용하여 독립적인 트랜잭션 내에서 최대 50회(`order.max-retry`) 재시도를 수행, 데이터 유실을 방지합니다.
+
+### 4. 지능형 데이터 관리 (Cleanup Logic)
+- **DB 최적화**: 처리 완료(`PROCESSED = 1`) 후 7일이 경과한 아웃박스 데이터를 자동으로 삭제하여 DB 성능을 유지합니다.
+- **범용성**: Java 레벨에서 날짜를 계산하여 전달함으로써 MySQL(Local) 및 Oracle(Assignment) 등 모든 DB 환경에서 완벽히 호환됩니다.
+
+---
+
+## 📈 성능 지표 (Performance Metrics)
+
 | 처리 방식 | 평균 응답 시간 (Latency) | 개선 효과 |
 | :--- | :---: | :---: |
 | **기존 방식 (매번 전송)** | 3,700ms | - |
 | **캐싱 처리 후** | 1,300ms | 약 3배 개선 |
 | **아웃박스 패턴 적용** | **130ms** | **약 28배 개선** |
 
+---
 
+## 📊 데이터베이스 스키마 및 상태 전이
 
-## 📋 데이터베이스 구조
-### ORDER_TB (주문 테이블)
-| 컬럼명 | 타입 | 설명 |
-| :--- | :--- | :--- |
-| APPLICANT_KEY | VARCHAR2 | 지원자 키 (LJH000009) |
-| ORDER_ID | VARCHAR2(20) | 주문 번호 (PK) |
-| USER_ID | VARCHAR2(20) | 사용자 ID |
-| NAME | VARCHAR2(50) | 수령인 성명 |
-| ADDRESS | VARCHAR2(200) | 배송지 주소 |
-| ITEM_ID | VARCHAR2(20) | 상품 ID |
-| ITEM_NAME | VARCHAR2(100) | 상품명 |
-| PRICE | NUMBER | 상품 가격 |
-| STATUS | CHAR(1) | 전송 상태 (N: 대기, Y: 완료) |
+### 주요 테이블 정보
+- **ORDER_TB**: 수신된 원천 주문 데이터 저장 (전송 상태: `STATUS`)
+- **OUTBOX_TB**: SFTP 비동기 전송을 위한 큐 (처리 여부: `PROCESSED`, 최종 수정: `UPDATED`)
+- **SHIPMENT_TB**: 운송 시스템 연계용 테이블
 
-### SHIPMENT_TB (운송 테이블)
-| 컬럼명 | 타입 | 설명 |
-| :--- | :--- | :--- |
-| SHIPMENT_ID | VARCHAR2(20) | 운송 ID (PK) |
-| ORDER_ID | VARCHAR2(20) | 주문 번호 (FK) |
-| ITEM_ID | VARCHAR2(20) | 상품 ID |
-| APPLICANT_KEY | VARCHAR2 | 지원자 키 |
-| ADDRESS | VARCHAR2(200) | 배송지 주소 |
+### 상태 흐름
+1. `POST /api/order/outbox` 호출 → `OUTBOX_TB.PROCESSED = 0` (대기)
+2. `ShipmentScheduler` 실행 → SFTP 전송 성공 → `OUTBOX_TB.PROCESSED = 1` & `UPDATED = 현재시각` (완료)
+3. 7일 경과 후 `Cleanup` 배치 실행 → `OUTBOX_TB` 해당 데이터 삭제
 
-### OUTBOX_TB (아웃박스 테이블)
-| 컬럼명 | 타입 | 설명 |
-| :--- | :--- | :--- |
-| APPLICANT_KEY | VARCHAR(255) | 지원자 키 (PK) |
-| ORDER_ID | VARCHAR(255) | 주문 번호 (PK) |
-| USER_ID | VARCHAR(255) | 사용자 ID |
-| ITEM_ID | VARCHAR(255) | 상품 ID |
-| NAME | VARCHAR(255) | 수령인 성명 |
-| ADDRESS | VARCHAR(255) | 배송지 주소 |
-| ITEM_NAME | VARCHAR(255) | 상품명 |
-| PRICE | VARCHAR(255) | 상품 가격 |
-| STATUS | VARCHAR(1) | 상태 값 |
-| UPDATED | TIMESTAMP | 최종 수정 일시 |
-| PROCESSED | TINYINT(1) | 처리 여부 (0: 미처리, 1: 완료) |
-
-## 🛠 유지보수 및 관리
-- **배치 정리 (Cleanup)**: 처리 완료(`PROCESSED = 1`)된 아웃박스 데이터를 주기적으로 삭제하여 DB 성능을 유지합니다. (`ShipmentScheduler.runDeleteProcessed`)
+---
 
 ## 🔌 API 명세
-### POST `/api/order` (동기 방식)
-주문 데이터를 생성하고 영수증을 즉시 SFTP로 전송합니다. (응답 시간: ~1,300ms)
 
-### POST `/api/order/outbox` (아웃박스 방식 - 권장)
-주문 데이터를 DB에 저장하고 아웃박스에 등록합니다. 실제 전송은 백그라운드에서 처리됩니다. (응답 시간: **~130ms**)
+### 1. 주문 생성 (아웃박스 방식 - 권장)
+- **Endpoint**: `POST /api/order/outbox`
+- **Request Body**: `{ "base64Xml": "..." }`
+- **Response**: `200 OK` (주문 저장 즉시 반환)
 
-**Request Body**
-```json
-{
-  "base64Xml": "PEhFQURFUj4uLi48L0hFQURFUj48SVRFTT4uLi48L0lURU0+..."
-}
-```
+### 2. 주문 생성 (동기 방식)
+- **Endpoint**: `POST /api/order`
+- **Response**: `200 OK` (SFTP 전송 완료 후 반환)
 
-**Response Body (Success)**
-```json
-{
-  "success": true,
-  "message": "주문 처리에 성공하였습니다.",
-  "orderCount": 1,
-  "skippedCount": 0,
-  "retryCount": 1
-}
-```
+---
 
-## ⚙️ 설정 가이드 (application.properties)
-주요 설정 항목은 다음과 같습니다:
-- `application.key`: 고유 키
-- `spring.datasource.*`: DB 접속 정보
-- `sftp.*`: SFTP 서버 접속 및 경로 정보
-- `order.max-retry`: 중복 ID 발생 시 최대 재시도 횟수
-- `shipment.scheduler.delay`: 배치 실행 주기 (밀리초)
+## 🛠 설정 및 운영 (application.properties)
+- `order.max-retry`: 중복 ID 발생 시 최대 재시도 횟수 (기본: 50)
+- `shipment.scheduler.delay`: 배치 실행 주기 (기본: 300,000ms)
+- `outbox.retention-days`: 완료 데이터 보존 기간 (기본: 7일)
 
+---
 
 ## 📝 로깅 및 모니터링
-- `traceId` 기반 로깅을 통해 주문별 처리 흐름을 추적할 수 있습니다.
-- 로그 저장 경로: `./logs/app.log` (애플리케이션), `./logs/batch.log` (배치)
+- 모든 작업은 UUID 기반의 `traceId`가 MDC를 통해 로그에 기록되어 주문별 추적이 가능합니다.
+- **애플리케이션 로그**: `./logs/app.log`
+- **배치 로그**: `./logs/batch.log`
