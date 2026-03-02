@@ -1,34 +1,34 @@
 package com.inspien.order.domain;
 
-import lombok.Builder;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 import java.time.LocalDateTime;
 
 @Getter
 @Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class Outbox {
     @Setter
     private String orderId;
 
-    private final String userId;
+    private String userId;
 
-    private final String itemId;
+    private String itemId;
 
-    private final String applicantKey;
+    private String applicantKey;
 
-    private final String name;
+    private String name;
 
-    private final String address;
+    private String address;
 
-    private final String itemName;
+    private String itemName;
 
-    private final String price;
+    private String price;
 
-    private final String status;
+    private String status;
 
-    private final LocalDateTime updated;
+    private LocalDateTime updated;
 
     @Builder.Default
     private Boolean processed = false;

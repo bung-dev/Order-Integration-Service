@@ -2,6 +2,7 @@ package com.inspien.receiver.jdbc;
 
 import com.inspien.order.domain.Outbox;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.namedparam.SqlParameterSource;
@@ -43,18 +44,7 @@ public class OutboxRepository {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("applicantKey", applicantKey);
 
-        return template.query(sql, params, (rs, rowNum) -> Outbox.builder()
-                .applicantKey(rs.getString("APPLICANT_KEY"))
-                .orderId(rs.getString("ORDER_ID"))
-                .userId(rs.getString("USER_ID"))
-                .itemId(rs.getString("ITEM_ID"))
-                .name(rs.getString("NAME"))
-                .address(rs.getString("ADDRESS"))
-                .itemName(rs.getString("ITEM_NAME"))
-                .price(rs.getString("PRICE"))
-                .status(rs.getString("STATUS"))
-                .processed(rs.getBoolean("PROCESSED"))
-                .build());
+        return template.query(sql, params, new BeanPropertyRowMapper<>(Outbox.class));
     }
 
     public int updateProcessed(String applicantKey, List<String> orderIds) {
