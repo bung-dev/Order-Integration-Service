@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
@@ -53,16 +54,17 @@ class ShipmentServiceTest {
     }
 
     @Test
-    @DisplayName("처리 완료된 Outbox 레코드 삭제 확인")
-    void cleanupProcessedOutbox_DeletesProcessedRecords() {
+    @DisplayName("7일 경과한 처리 완료 Outbox 레코드 삭제 확인")
+    void cleanupOldOutbox_DeletesOldProcessedRecords() {
         // given
         String appKey = "LJH000009";
-        when(outboxRepository.deleteProcessed(appKey)).thenReturn(3);
+        ReflectionTestUtils.setField(shipmentService, "retentionDays", 7);
+        when(outboxRepository.deleteProcessedOldData(appKey, 7)).thenReturn(3);
 
         // when
-        shipmentService.cleanupProcessedOutbox(appKey);
+        shipmentService.cleanupOldOutbox(appKey);
 
         // then
-        verify(outboxRepository, times(1)).deleteProcessed(appKey);
+        verify(outboxRepository, times(1)).deleteProcessedOldData(appKey, 7);
     }
 }
