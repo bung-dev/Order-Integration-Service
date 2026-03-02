@@ -9,7 +9,9 @@ import com.inspien.mapper.dto.OrderHeaderXml;
 import com.inspien.mapper.dto.OrderItemXml;
 import com.inspien.mapper.dto.OrderRequestXML;
 import com.inspien.order.domain.Order;
+import com.inspien.order.domain.Outbox;
 import com.inspien.receiver.jdbc.OrderRepository;
+import com.inspien.receiver.jdbc.OutboxRepository;
 import com.inspien.receiver.sftp.FileWriter;
 import com.inspien.receiver.sftp.SftpUploader;
 import com.inspien.sender.dto.CreateOrderResult;
@@ -39,6 +41,7 @@ class OrderServiceTest {
     private OrderService orderService;
 
     @Mock private OrderRepository orderRepository;
+    @Mock private OutboxRepository outboxRepository;
     @Mock private OrderParserXML orderParserXML;
     @Mock private OrderRequestValidator validator;
     @Mock private OrderMapper mapper;
@@ -125,5 +128,38 @@ class OrderServiceTest {
         // then
         assertTrue(result.success());
         assertEquals(3, result.retryCount());
+    }
+    @Test
+    @DisplayName("아웃박스 패턴 주문 생성 테스트")
+    void createOrderOutbox_Success() throws Exception {
+        // given
+        String base64Xml = "dGVzdCB4bWw=";
+        OrderRequestXML request = new OrderRequestXML();
+        OrderHeaderXml h = new OrderHeaderXml();
+        h.setUserId("user1"); h.setName("Name"); h.setAddress("Addr"); h.setStatus("N");
+        request.setHeaders(List.of(h));
+        OrderItemXml item = new OrderItemXml();
+        item.setUserId("user1"); item.setItemId("I001"); item.setItemName("Item"); item.setPrice("1000");
+        request.setItems(List.of(item));
+
+        List<Order> orders = List.of(Order.builder().userId("user1").applicantKey("key").build());
+
+        when(orderParserXML.parse(anyString())).thenReturn(request);
+        when(mapper.flatten(any())).thenReturn(new com.inspien.mapper.dto.FlattenResult(orders, 0));
+        when(idGenerator.generate()).thenReturn("A001");
+        when(orderRepository.batchInsert(any())).thenReturn(new int[]{1});
+        when(outboxRepository.batchInsert(anyList())).thenReturn(new int[]{1});
+
+        ReflectionTestUtils.setField(orderService, "maxRetry", 5);
+        ReflectionTestUtils.setField(orderService, "participantName", "이중호");
+
+        // when
+        CreateOrderResult result = orderService.createOrderOutbox(base64Xml);
+
+        // then
+        assertTrue(result.success());
+        assertEquals(1, result.orderCount());
+        verify(outboxRepository, times(1)).batchInsert(anyList());
+        verify(sftpUploader, never()).upload(any());
     }
 }
