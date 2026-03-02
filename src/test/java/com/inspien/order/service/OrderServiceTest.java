@@ -1,5 +1,6 @@
 package com.inspien.order.service;
 
+import com.inspien.common.config.properties.AppProperties;
 import com.inspien.common.exception.CustomException;
 import com.inspien.common.exception.ErrorCode;
 import com.inspien.mapper.OrderMapper;
@@ -9,7 +10,6 @@ import com.inspien.mapper.dto.OrderHeaderXml;
 import com.inspien.mapper.dto.OrderItemXml;
 import com.inspien.mapper.dto.OrderRequestXML;
 import com.inspien.order.domain.Order;
-import com.inspien.order.domain.Outbox;
 import com.inspien.receiver.jdbc.OrderRepository;
 import com.inspien.receiver.jdbc.OutboxRepository;
 import com.inspien.receiver.sftp.FileWriter;
@@ -49,12 +49,13 @@ class OrderServiceTest {
     @Mock private FileWriter fileWriter;
     @Mock private SftpUploader sftpUploader;
     @Mock private PlatformTransactionManager txManager;
+    @Mock private AppProperties appProperties;
 
     @Test
     @DisplayName("주문 생성 전체 프로세스 성공 테스트")
     void createOrderSync_Success() throws Exception {
         // given
-        String base64Xml = "dGVzdCB4bWw="; 
+        String base64Xml = "dGVzdCB4bWw=";
         OrderRequestXML request = new OrderRequestXML();
         OrderHeaderXml h = new OrderHeaderXml();
         h.setUserId("user1"); h.setName("Name"); h.setAddress("Addr"); h.setStatus("N");
@@ -62,7 +63,7 @@ class OrderServiceTest {
         OrderItemXml item = new OrderItemXml();
         item.setUserId("user1"); item.setItemId("I001"); item.setItemName("Item"); item.setPrice("1000");
         request.setItems(List.of(item));
-        
+
         List<Order> orders = List.of(Order.builder().userId("user1").build());
         Path mockPath = Paths.get("test.txt");
 
@@ -71,10 +72,8 @@ class OrderServiceTest {
         when(idGenerator.generate()).thenReturn("A001");
         when(orderRepository.batchInsert(any())).thenReturn(new int[]{1});
         when(fileWriter.write(anyList(), any())).thenReturn(mockPath);
-        
-        // Mock TransactionTemplate
-        ReflectionTestUtils.setField(orderService, "maxRetry", 5);
-        ReflectionTestUtils.setField(orderService, "participantName", "이중호");
+        when(appProperties.getMaxRetry()).thenReturn(5);
+        when(appProperties.getParticipantName()).thenReturn("이중호");
 
         // when
         CreateOrderResult result = orderService.createOrderSync(base64Xml);
@@ -95,16 +94,17 @@ class OrderServiceTest {
         Files.createDirectories(tempFile.getParent());
         if (!Files.exists(tempFile)) Files.createFile(tempFile);
 
-        ReflectionTestUtils.setField(orderService, "maxRetry", 1);
+        when(appProperties.getMaxRetry()).thenReturn(1);
+        when(appProperties.getParticipantName()).thenReturn("이중호");
         when(orderRepository.batchInsert(any())).thenReturn(new int[]{1});
         when(fileWriter.write(anyList(), any())).thenReturn(tempFile);
         doThrow(new RuntimeException("SFTP Fail")).when(sftpUploader).upload(any());
 
         // when & then
-        CustomException ex = assertThrows(CustomException.class, () -> {
-            ReflectionTestUtils.invokeMethod(orderService, "saveOrders", orders, 0);
-        });
-        
+        CustomException ex = assertThrows(CustomException.class, () ->
+                ReflectionTestUtils.invokeMethod(orderService, "saveOrders", orders, 0)
+        );
+
         assertEquals(ErrorCode.SFTP_SEND_FAIL, ex.getErrorCode());
         assertFalse(Files.exists(tempFile), "실패 시 생성된 파일이 삭제되어야 함");
     }
@@ -114,8 +114,9 @@ class OrderServiceTest {
     void saveOrders_DuplicateKeyRetry() {
         // given
         List<Order> orders = List.of(Order.builder().userId("user1").build());
-        ReflectionTestUtils.setField(orderService, "maxRetry", 3);
-        
+        when(appProperties.getMaxRetry()).thenReturn(3);
+        when(appProperties.getParticipantName()).thenReturn("이중호");
+
         when(orderRepository.batchInsert(any()))
                 .thenThrow(new DuplicateKeyException("Duplicate"))
                 .thenThrow(new DuplicateKeyException("Duplicate"))
@@ -129,6 +130,7 @@ class OrderServiceTest {
         assertTrue(result.success());
         assertEquals(3, result.retryCount());
     }
+
     @Test
     @DisplayName("아웃박스 패턴 주문 생성 테스트")
     void createOrderOutbox_Success() throws Exception {
@@ -149,9 +151,7 @@ class OrderServiceTest {
         when(idGenerator.generate()).thenReturn("A001");
         when(orderRepository.batchInsert(any())).thenReturn(new int[]{1});
         when(outboxRepository.batchInsert(anyList())).thenReturn(new int[]{1});
-
-        ReflectionTestUtils.setField(orderService, "maxRetry", 5);
-        ReflectionTestUtils.setField(orderService, "participantName", "이중호");
+        when(appProperties.getMaxRetry()).thenReturn(5);
 
         // when
         CreateOrderResult result = orderService.createOrderOutbox(base64Xml);
