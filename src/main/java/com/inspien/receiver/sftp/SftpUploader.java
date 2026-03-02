@@ -1,8 +1,8 @@
 package com.inspien.receiver.sftp;
 
+import com.inspien.common.config.properties.SftpProperties;
 import com.inspien.common.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.integration.sftp.session.SftpRemoteFileTemplate;
 import org.springframework.stereotype.Component;
 
@@ -17,10 +17,9 @@ public class SftpUploader {
     private final SftpRemoteFileTemplate template;
     private final String remoteDir;
 
-    public SftpUploader(SftpRemoteFileTemplate template,
-                        @Value("${sftp.remote-dir}") String remoteDir) {
+    public SftpUploader(SftpRemoteFileTemplate template, SftpProperties sftpProperties) {
         this.template = template;
-        this.remoteDir = remoteDir;
+        this.remoteDir = sftpProperties.getRemoteDir();
     }
 
     public void upload(Path localFile) {
@@ -49,4 +48,3 @@ public class SftpUploader {
         });
     }
 }
-
