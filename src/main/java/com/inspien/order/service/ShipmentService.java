@@ -35,6 +35,9 @@ public class ShipmentService {
     @Value("${order.participant-name}")
     private String participantName;
 
+    @Value("${outbox.retention-days:7}")
+    private int retentionDays;
+
     @Transactional
     public void run(String applicantKey) {
         List<PendingOrderRow> pending = orderRepository.findPendingForShipment(applicantKey);
@@ -109,10 +112,10 @@ public class ShipmentService {
     }
 
     @Transactional
-    public void cleanupProcessedOutbox(String applicantKey) {
-        int deletedCount = outboxRepository.deleteProcessed(applicantKey);
+    public void cleanupOldOutbox(String applicantKey) {
+        int deletedCount = outboxRepository.deleteProcessedOldData(applicantKey, retentionDays);
         if (deletedCount > 0) {
-            log.info("[BATCH:CLEANUP] Deleted {} processed outbox records for key: {}", deletedCount, applicantKey);
+            log.info("[BATCH:CLEANUP] Deleted {} old outbox records (older than {} days) for key: {}", deletedCount, retentionDays, applicantKey);
         }
     }
 }
