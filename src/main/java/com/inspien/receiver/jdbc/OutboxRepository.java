@@ -68,4 +68,15 @@ public class OutboxRepository {
 
         return template.update(sql, params);
     }
+
+    public int deleteProcessed(String applicantKey) {
+        String sql = """
+                DELETE FROM OUTBOX_TB
+                WHERE APPLICANT_KEY = :applicantKey
+                  AND PROCESSED = true
+                """;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("applicantKey", applicantKey);
+        return template.update(sql, params);
+    }
 }
