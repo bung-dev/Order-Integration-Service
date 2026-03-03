@@ -1,6 +1,7 @@
 package com.inspien.order.service;
 
 import com.inspien.common.config.properties.AppProperties;
+import com.inspien.mapper.OrderDomainMapper;
 import com.inspien.order.domain.Order;
 import com.inspien.order.domain.Outbox;
 import com.inspien.receiver.jdbc.OrderRepository;
@@ -31,6 +32,7 @@ public class ShipmentService {
     private final SftpUploader sftpUploader;
     private final IdGenerator idGenerator;
     private final AppProperties appProperties;
+    private final OrderDomainMapper orderDomainMapper;
 
     @Transactional
     public void run(String applicantKey) {
@@ -41,13 +43,7 @@ public class ShipmentService {
         }
 
         List<ShipmentRow> shipmentRows = pending.stream()
-                .map(p -> new ShipmentRow(
-                        p.orderId(),
-                        p.orderId(),
-                        p.itemId(),
-                        p.applicantKey(),
-                        p.address()
-                ))
+                .map(p -> orderDomainMapper.toShipmentRow(p))
                 .toList();
 
         int[] results = shipmentRepository.batchInsert(shipmentRows);
@@ -76,17 +72,7 @@ public class ShipmentService {
         log.info("[BATCH OUTBOX] found={}", outboxes.size());
 
         List<Order> orders = outboxes.stream()
-                .map(o -> Order.builder()
-                        .applicantKey(o.getApplicantKey())
-                        .orderId(o.getOrderId())
-                        .userId(o.getUserId())
-                        .itemId(o.getItemId())
-                        .name(o.getName())
-                        .address(o.getAddress())
-                        .itemName(o.getItemName())
-                        .price(o.getPrice())
-                        .status(o.getStatus())
-                        .build())
+                .map(orderDomainMapper::toOrder)
                 .toList();
 
         try {

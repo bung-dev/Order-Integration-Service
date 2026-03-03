@@ -1,6 +1,7 @@
 package com.inspien.order.service;
 
 import com.inspien.common.config.properties.AppProperties;
+import com.inspien.mapper.OrderDomainMapper;
 import com.inspien.mapper.dto.FlattenResult;
 import com.inspien.order.domain.Outbox;
 import com.inspien.receiver.jdbc.BatchResult;
@@ -13,34 +14,29 @@ import com.inspien.mapper.OrderParserXML;
 import com.inspien.mapper.OrderRequestValidator;
 import com.inspien.mapper.dto.OrderRequestXML;
 import com.inspien.order.domain.Order;
-import com.inspien.receiver.jdbc.OrderRepository;
 import com.inspien.sender.dto.CreateOrderResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDateTime;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderService {
 
-    private final OrderRepository orderRepository;
-    private final PlatformTransactionManager txManager;
+    private final OrderCommandService orderCommandService;
     private final OrderParserXML orderParserXML;
     private final OrderRequestValidator validator;
     private final OrderMapper mapper;
-    private final IdGenerator idGenerator;
+    private final OrderDomainMapper orderDomainMapper;
     private final FileWriter fileWriter;
     private final SftpUploader sftpUploader;
     private final OutboxRepository outboxRepository;
@@ -81,9 +77,7 @@ public class OrderService {
             );
 
             long endTime = System.currentTimeMillis();
-            long durationTime = endTime - startTime;
-
-            log.info("[ORDER OUTBOX] durationTime={}", durationTime);
+            log.info("[ORDER OUTBOX] durationTime={}", endTime - startTime);
             return result;
         } finally {
             MDC.remove("traceId");
@@ -141,9 +135,7 @@ public class OrderService {
             );
 
             long endTime = System.currentTimeMillis();
-            long durationTime = endTime - startTime;
-
-            log.info("[ORDER] durationTime={}", durationTime);
+            log.info("[ORDER] durationTime={}", endTime - startTime);
             return result;
         } finally {
             MDC.remove("traceId");
@@ -154,117 +146,53 @@ public class OrderService {
         if (orders == null || orders.isEmpty()) {
             throw ErrorCode.VALIDATION_ERROR.exception();
         }
-
-        int maxRetry = appProperties.getMaxRetry();
-        TransactionTemplate requiresNewTx = requiresNewTemplate();
-
-        for (int attempt = 1; attempt <= maxRetry; attempt++) {
-            final int attemptNum = attempt;
-            assignOrderId(orders);
-
-            try {
-                return requiresNewTx.execute(status -> {
-                    BatchResult summary = executeBatchInsert(orders);
-
-                    List<Outbox> outboxes = orders.stream()
-                            .map(o -> Outbox.builder()
-                                    .applicantKey(o.getApplicantKey())
-                                    .orderId(o.getOrderId())
-                                    .userId(o.getUserId())
-                                    .itemId(o.getItemId())
-                                    .name(o.getName())
-                                    .address(o.getAddress())
-                                    .itemName(o.getItemName())
-                                    .price(o.getPrice())
-                                    .status(o.getStatus())
-                                    .updated(LocalDateTime.now())
-                                    .processed(false)
-                                    .build())
-                            .toList();
-
-                    outboxRepository.batchInsert(outboxes);
-
-                    log.info("[ORDER OUTBOX:DB] insert_done attempt={} total={} success={} fail={}",
-                            attemptNum,
-                            summary.totalCount(),
-                            summary.successCount(),
-                            summary.failCount());
-
-                    return CreateOrderResult.ok(summary.successCount(), skippedCount, attemptNum);
-                });
-            } catch (DuplicateKeyException e) {
-                if (attempt == maxRetry) {
-                    log.warn("[ORDER OUTBOX:DB] duplicate_key_retry attempt={}/{}", attempt, maxRetry);
-                    throw ErrorCode.DUPLICATE_KEY.exception();
-                }
-            }
-        }
-        throw ErrorCode.INTERNAL_ERROR.exception();
+        return processOrderSave(orders, skippedCount, savedOrders -> {
+            List<Outbox> outboxes = savedOrders.stream()
+                    .map(orderDomainMapper::toOutbox)
+                    .toList();
+            outboxRepository.batchInsert(outboxes);
+        });
     }
 
     private CreateOrderResult saveOrders(List<Order> orders, int skippedCount) {
         if (orders == null || orders.isEmpty()) {
             throw ErrorCode.VALIDATION_ERROR.exception();
         }
-
-        int maxRetry = appProperties.getMaxRetry();
         String participantName = appProperties.getParticipantName();
-        TransactionTemplate requiresNewTx = requiresNewTemplate();
-
-        for (int attempt = 1; attempt <= maxRetry; attempt++) {
-            final int attemptNum = attempt;
-            assignOrderId(orders);
-
+        return processOrderSave(orders, skippedCount, savedOrders -> {
+            Path file = fileWriter.write(savedOrders, participantName);
+            log.info("[ORDER:FILE] created file={}", file.getFileName());
             try {
-                return requiresNewTx.execute(status -> {
-                    BatchResult summary = executeBatchInsert(orders);
-                    log.info("[ORDER:DB] insert_done attempt={} total={} success={} fail={}",
-                            attemptNum,
-                            summary.totalCount(),
-                            summary.successCount(),
-                            summary.failCount());
-                    Path file = fileWriter.write(orders, participantName);
-                    log.info("[ORDER:FILE] created file={}", file.getFileName());
-                    try {
-                        sftpUploader.upload(file);
-                        log.info("[ORDER:SFTP] upload_ok file={}", file.getFileName());
-                    } catch (RuntimeException e) {
-                        log.error("[ORDER:SFTP] upload_fail file={}", file.getFileName(), e);
-                        try {
-                            Files.deleteIfExists(file);
-                            log.info("[ORDER:FILE] deleted file={}", file.getFileName());
-                        } catch (Exception deleteEx) {
-                            log.warn("[ORDER:FILE] delete_fail file={}", file.getFileName(), deleteEx);
-                        }
-                        throw ErrorCode.SFTP_SEND_FAIL.exception();
-                    }
-                    return CreateOrderResult.ok(summary.successCount(), skippedCount, attemptNum);
-                });
-
-            } catch (DuplicateKeyException e) {
-                if (attempt == maxRetry) {
-                    log.warn("[ORDER:DB] duplicate_key_retry attempt={}/{}", attempt, maxRetry);
-                    throw ErrorCode.DUPLICATE_KEY.exception();
+                sftpUploader.upload(file);
+                log.info("[ORDER:SFTP] upload_ok file={}", file.getFileName());
+            } catch (RuntimeException e) {
+                log.error("[ORDER:SFTP] upload_fail file={}", file.getFileName(), e);
+                try {
+                    Files.deleteIfExists(file);
+                    log.info("[ORDER:FILE] deleted file={}", file.getFileName());
+                } catch (Exception deleteEx) {
+                    log.warn("[ORDER:FILE] delete_fail file={}", file.getFileName(), deleteEx);
                 }
+                throw ErrorCode.SFTP_SEND_FAIL.exception();
+            }
+        });
+    }
+
+    private CreateOrderResult processOrderSave(List<Order> orders, int skippedCount, Consumer<List<Order>> extraAction) {
+        int maxRetry = appProperties.getMaxRetry();
+        for (int attempt = 1; attempt <= maxRetry; attempt++) {
+            try {
+                BatchResult summary = orderCommandService.saveOrdersWithId(orders);
+                log.info("[ORDER:DB] insert_done attempt={} total={} success={} fail={}",
+                        attempt, summary.totalCount(), summary.successCount(), summary.failCount());
+                if (extraAction != null) {
+                    extraAction.accept(orders);
+                }
+                return CreateOrderResult.ok(summary.successCount(), skippedCount, attempt);
+            } catch (DuplicateKeyException e) {
+                if (attempt == maxRetry) throw e;
             }
         }
         throw ErrorCode.INTERNAL_ERROR.exception();
-    }
-
-    private TransactionTemplate requiresNewTemplate() {
-        TransactionTemplate tx = new TransactionTemplate(txManager);
-        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        return tx;
-    }
-
-    private BatchResult executeBatchInsert(List<Order> orders) {
-        int[] result = orderRepository.batchInsert(orders);
-        return BatchResult.from(result, orders.size());
-    }
-
-    private void assignOrderId(List<Order> orders) {
-        for (Order o : orders) {
-            o.setOrderId(idGenerator.generate());
-        }
     }
 }
