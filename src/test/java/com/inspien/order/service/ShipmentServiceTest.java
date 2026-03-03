@@ -1,10 +1,12 @@
 package com.inspien.order.service;
 
 import com.inspien.common.config.properties.AppProperties;
+import com.inspien.mapper.OrderDomainMapper;
 import com.inspien.receiver.jdbc.OrderRepository;
 import com.inspien.receiver.jdbc.ShipmentRepository;
 import com.inspien.receiver.jdbc.OutboxRepository;
 import com.inspien.receiver.jdbc.dto.PendingOrderRow;
+import com.inspien.receiver.jdbc.dto.ShipmentRow;
 import com.inspien.receiver.sftp.FileWriter;
 import com.inspien.receiver.sftp.SftpUploader;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +36,7 @@ class ShipmentServiceTest {
     @Mock private FileWriter fileWriter;
     @Mock private SftpUploader sftpUploader;
     @Mock private AppProperties appProperties;
+    @Mock private OrderDomainMapper orderDomainMapper;
 
     @Test
     @DisplayName("출고 대기 주문 처리 성공 시 상태 업데이트 확인")
@@ -46,6 +49,10 @@ class ShipmentServiceTest {
         );
 
         when(orderRepository.findPendingForShipment(appKey)).thenReturn(pending);
+        when(orderDomainMapper.toShipmentRow(any(PendingOrderRow.class))).thenAnswer(inv -> {
+            PendingOrderRow row = inv.getArgument(0);
+            return new ShipmentRow(row.orderId(), row.orderId(), row.itemId(), row.applicantKey(), row.address());
+        });
         // 첫 번째는 성공(1), 두 번째는 실패(0) 가정
         when(shipmentRepository.batchInsert(anyList())).thenReturn(new int[]{1, 0});
 

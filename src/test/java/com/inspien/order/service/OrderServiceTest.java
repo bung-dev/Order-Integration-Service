@@ -3,6 +3,7 @@ package com.inspien.order.service;
 import com.inspien.common.config.properties.AppProperties;
 import com.inspien.common.exception.CustomException;
 import com.inspien.common.exception.ErrorCode;
+import com.inspien.mapper.OrderDomainMapper;
 import com.inspien.mapper.OrderMapper;
 import com.inspien.mapper.OrderParserXML;
 import com.inspien.mapper.OrderRequestValidator;
@@ -10,7 +11,7 @@ import com.inspien.mapper.dto.OrderHeaderXml;
 import com.inspien.mapper.dto.OrderItemXml;
 import com.inspien.mapper.dto.OrderRequestXML;
 import com.inspien.order.domain.Order;
-import com.inspien.receiver.jdbc.OrderRepository;
+import com.inspien.receiver.jdbc.BatchResult;
 import com.inspien.receiver.jdbc.OutboxRepository;
 import com.inspien.receiver.sftp.FileWriter;
 import com.inspien.receiver.sftp.SftpUploader;
@@ -23,7 +24,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.PlatformTransactionManager;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,15 +40,14 @@ class OrderServiceTest {
     @InjectMocks
     private OrderService orderService;
 
-    @Mock private OrderRepository orderRepository;
+    @Mock private OrderCommandService orderCommandService;
     @Mock private OutboxRepository outboxRepository;
     @Mock private OrderParserXML orderParserXML;
     @Mock private OrderRequestValidator validator;
     @Mock private OrderMapper mapper;
-    @Mock private IdGenerator idGenerator;
+    @Mock private OrderDomainMapper orderDomainMapper;
     @Mock private FileWriter fileWriter;
     @Mock private SftpUploader sftpUploader;
-    @Mock private PlatformTransactionManager txManager;
     @Mock private AppProperties appProperties;
 
     @Test
@@ -69,8 +68,7 @@ class OrderServiceTest {
 
         when(orderParserXML.parse(anyString())).thenReturn(request);
         when(mapper.flatten(any())).thenReturn(new com.inspien.mapper.dto.FlattenResult(orders, 0));
-        when(idGenerator.generate()).thenReturn("A001");
-        when(orderRepository.batchInsert(any())).thenReturn(new int[]{1});
+        when(orderCommandService.saveOrdersWithId(any())).thenReturn(BatchResult.from(new int[]{1}, 1));
         when(fileWriter.write(anyList(), any())).thenReturn(mockPath);
         when(appProperties.getMaxRetry()).thenReturn(5);
         when(appProperties.getParticipantName()).thenReturn("이중호");
@@ -96,7 +94,7 @@ class OrderServiceTest {
 
         when(appProperties.getMaxRetry()).thenReturn(1);
         when(appProperties.getParticipantName()).thenReturn("이중호");
-        when(orderRepository.batchInsert(any())).thenReturn(new int[]{1});
+        when(orderCommandService.saveOrdersWithId(any())).thenReturn(BatchResult.from(new int[]{1}, 1));
         when(fileWriter.write(anyList(), any())).thenReturn(tempFile);
         doThrow(new RuntimeException("SFTP Fail")).when(sftpUploader).upload(any());
 
@@ -117,10 +115,10 @@ class OrderServiceTest {
         when(appProperties.getMaxRetry()).thenReturn(3);
         when(appProperties.getParticipantName()).thenReturn("이중호");
 
-        when(orderRepository.batchInsert(any()))
+        when(orderCommandService.saveOrdersWithId(any()))
                 .thenThrow(new DuplicateKeyException("Duplicate"))
                 .thenThrow(new DuplicateKeyException("Duplicate"))
-                .thenReturn(new int[]{1});
+                .thenReturn(BatchResult.from(new int[]{1}, 1));
         when(fileWriter.write(any(), any())).thenReturn(Paths.get("success.txt"));
 
         // when
@@ -148,8 +146,7 @@ class OrderServiceTest {
 
         when(orderParserXML.parse(anyString())).thenReturn(request);
         when(mapper.flatten(any())).thenReturn(new com.inspien.mapper.dto.FlattenResult(orders, 0));
-        when(idGenerator.generate()).thenReturn("A001");
-        when(orderRepository.batchInsert(any())).thenReturn(new int[]{1});
+        when(orderCommandService.saveOrdersWithId(any())).thenReturn(BatchResult.from(new int[]{1}, 1));
         when(outboxRepository.batchInsert(anyList())).thenReturn(new int[]{1});
         when(appProperties.getMaxRetry()).thenReturn(5);
 
