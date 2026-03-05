@@ -1,33 +1,22 @@
 package com.inspien.order.service;
 
-import com.inspien.common.config.properties.AppProperties;
-import com.inspien.common.exception.CustomException;
-import com.inspien.common.exception.ErrorCode;
-import com.inspien.mapper.OrderDomainMapper;
 import com.inspien.mapper.OrderMapper;
 import com.inspien.mapper.OrderParserXML;
 import com.inspien.mapper.OrderRequestValidator;
+import com.inspien.mapper.dto.FlattenResult;
 import com.inspien.mapper.dto.OrderHeaderXml;
 import com.inspien.mapper.dto.OrderItemXml;
 import com.inspien.mapper.dto.OrderRequestXML;
 import com.inspien.order.domain.Order;
-import com.inspien.receiver.jdbc.BatchResult;
-import com.inspien.receiver.jdbc.OutboxRepository;
-import com.inspien.receiver.sftp.FileWriter;
-import com.inspien.receiver.sftp.SftpUploader;
+import com.inspien.order.strategy.OrderProcessor;
 import com.inspien.sender.dto.CreateOrderResult;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DuplicateKeyException;
-import org.springframework.test.util.ReflectionTestUtils;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,24 +26,20 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
 
-    @InjectMocks
     private OrderService orderService;
 
-    @Mock private OrderCommandService orderCommandService;
-    @Mock private OutboxRepository outboxRepository;
     @Mock private OrderParserXML orderParserXML;
     @Mock private OrderRequestValidator validator;
     @Mock private OrderMapper mapper;
-    @Mock private OrderDomainMapper orderDomainMapper;
-    @Mock private FileWriter fileWriter;
-    @Mock private SftpUploader sftpUploader;
-    @Mock private AppProperties appProperties;
+    @Mock private OrderProcessor syncOrderProcessor;
+    @Mock private OrderProcessor asyncOrderProcessor;
 
-    @Test
-    @DisplayName("주문 생성 전체 프로세스 성공 테스트")
-    void createOrderSync_Success() throws Exception {
-        // given
-        String base64Xml = "dGVzdCB4bWw=";
+    @BeforeEach
+    void setUp() {
+        orderService = new OrderService(orderParserXML, validator, mapper, syncOrderProcessor, asyncOrderProcessor);
+    }
+
+    private OrderRequestXML buildRequest() {
         OrderRequestXML request = new OrderRequestXML();
         OrderHeaderXml h = new OrderHeaderXml();
         h.setUserId("user1"); h.setName("Name"); h.setAddress("Addr"); h.setStatus("N");
@@ -62,101 +47,42 @@ class OrderServiceTest {
         OrderItemXml item = new OrderItemXml();
         item.setUserId("user1"); item.setItemId("I001"); item.setItemName("Item"); item.setPrice("1000");
         request.setItems(List.of(item));
+        return request;
+    }
 
+    @Test
+    @DisplayName("동기 주문 생성 시 syncOrderProcessor에 위임")
+    void createOrderSync_DelegatesTo_SyncProcessor() throws Exception {
+        String base64Xml = "dGVzdCB4bWw=";
         List<Order> orders = List.of(Order.builder().userId("user1").build());
-        Path mockPath = Paths.get("test.txt");
 
-        when(orderParserXML.parse(anyString())).thenReturn(request);
-        when(mapper.flatten(any())).thenReturn(new com.inspien.mapper.dto.FlattenResult(orders, 0));
-        when(orderCommandService.saveOrdersWithId(any())).thenReturn(BatchResult.from(new int[]{1}, 1));
-        when(fileWriter.write(anyList(), any())).thenReturn(mockPath);
-        when(appProperties.getMaxRetry()).thenReturn(5);
-        when(appProperties.getParticipantName()).thenReturn("이중호");
+        when(orderParserXML.parse(anyString())).thenReturn(buildRequest());
+        when(mapper.flatten(any())).thenReturn(new FlattenResult(orders, 0));
+        when(syncOrderProcessor.process(any(), anyInt())).thenReturn(CreateOrderResult.ok(1, 0, 1));
 
-        // when
         CreateOrderResult result = orderService.createOrderSync(base64Xml);
 
-        // then
         assertTrue(result.success());
-        assertEquals(1, result.retryCount());
         assertEquals(1, result.orderCount());
-        verify(sftpUploader, times(1)).upload(any());
+        verify(syncOrderProcessor).process(eq(orders), eq(0));
+        verify(asyncOrderProcessor, never()).process(any(), anyInt());
     }
 
     @Test
-    @DisplayName("SFTP 전송 실패 시 파일 삭제 및 예외 처리 테스트")
-    void saveOrders_SftpUploadFail_RollbackFile() throws Exception {
-        // given
-        List<Order> orders = List.of(Order.builder().userId("user1").build());
-        Path tempFile = Paths.get("./out/test_file.txt");
-        Files.createDirectories(tempFile.getParent());
-        if (!Files.exists(tempFile)) Files.createFile(tempFile);
-
-        when(appProperties.getMaxRetry()).thenReturn(1);
-        when(appProperties.getParticipantName()).thenReturn("이중호");
-        when(orderCommandService.saveOrdersWithId(any())).thenReturn(BatchResult.from(new int[]{1}, 1));
-        when(fileWriter.write(anyList(), any())).thenReturn(tempFile);
-        doThrow(new RuntimeException("SFTP Fail")).when(sftpUploader).upload(any());
-
-        // when & then
-        CustomException ex = assertThrows(CustomException.class, () ->
-                ReflectionTestUtils.invokeMethod(orderService, "saveOrders", orders, 0)
-        );
-
-        assertEquals(ErrorCode.SFTP_SEND_FAIL, ex.getErrorCode());
-        assertFalse(Files.exists(tempFile), "실패 시 생성된 파일이 삭제되어야 함");
-    }
-
-    @Test
-    @DisplayName("DB 중복 키 발생 시 재시도 로직 테스트")
-    void saveOrders_DuplicateKeyRetry() {
-        // given
-        List<Order> orders = List.of(Order.builder().userId("user1").build());
-        when(appProperties.getMaxRetry()).thenReturn(3);
-        when(appProperties.getParticipantName()).thenReturn("이중호");
-
-        when(orderCommandService.saveOrdersWithId(any()))
-                .thenThrow(new DuplicateKeyException("Duplicate"))
-                .thenThrow(new DuplicateKeyException("Duplicate"))
-                .thenReturn(BatchResult.from(new int[]{1}, 1));
-        when(fileWriter.write(any(), any())).thenReturn(Paths.get("success.txt"));
-
-        // when
-        CreateOrderResult result = ReflectionTestUtils.invokeMethod(orderService, "saveOrders", orders, 0);
-
-        // then
-        assertTrue(result.success());
-        assertEquals(3, result.retryCount());
-    }
-
-    @Test
-    @DisplayName("아웃박스 패턴 주문 생성 테스트")
-    void createOrderOutbox_Success() throws Exception {
-        // given
+    @DisplayName("아웃박스 주문 생성 시 asyncOrderProcessor에 위임")
+    void createOrderOutbox_DelegatesTo_AsyncProcessor() throws Exception {
         String base64Xml = "dGVzdCB4bWw=";
-        OrderRequestXML request = new OrderRequestXML();
-        OrderHeaderXml h = new OrderHeaderXml();
-        h.setUserId("user1"); h.setName("Name"); h.setAddress("Addr"); h.setStatus("N");
-        request.setHeaders(List.of(h));
-        OrderItemXml item = new OrderItemXml();
-        item.setUserId("user1"); item.setItemId("I001"); item.setItemName("Item"); item.setPrice("1000");
-        request.setItems(List.of(item));
-
         List<Order> orders = List.of(Order.builder().userId("user1").applicantKey("key").build());
 
-        when(orderParserXML.parse(anyString())).thenReturn(request);
-        when(mapper.flatten(any())).thenReturn(new com.inspien.mapper.dto.FlattenResult(orders, 0));
-        when(orderCommandService.saveOrdersWithId(any())).thenReturn(BatchResult.from(new int[]{1}, 1));
-        when(outboxRepository.batchInsert(anyList())).thenReturn(new int[]{1});
-        when(appProperties.getMaxRetry()).thenReturn(5);
+        when(orderParserXML.parse(anyString())).thenReturn(buildRequest());
+        when(mapper.flatten(any())).thenReturn(new FlattenResult(orders, 0));
+        when(asyncOrderProcessor.process(any(), anyInt())).thenReturn(CreateOrderResult.ok(1, 0, 1));
 
-        // when
         CreateOrderResult result = orderService.createOrderOutbox(base64Xml);
 
-        // then
         assertTrue(result.success());
         assertEquals(1, result.orderCount());
-        verify(outboxRepository, times(1)).batchInsert(anyList());
-        verify(sftpUploader, never()).upload(any());
+        verify(asyncOrderProcessor).process(eq(orders), eq(0));
+        verify(syncOrderProcessor, never()).process(any(), anyInt());
     }
 }
