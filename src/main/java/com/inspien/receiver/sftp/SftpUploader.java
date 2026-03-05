@@ -2,6 +2,7 @@ package com.inspien.receiver.sftp;
 
 import com.inspien.common.config.properties.SftpProperties;
 import com.inspien.common.exception.ErrorCode;
+import com.inspien.common.exception.SftpException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.integration.sftp.session.SftpRemoteFileTemplate;
 import org.springframework.stereotype.Component;
@@ -28,22 +29,26 @@ public class SftpUploader {
         }
 
         template.execute(session -> {
+            String finalName = localFile.getFileName().toString();
+            String tempPath = remoteDir + "/" + finalName + ".tmp";
+            String remotePath = remoteDir + "/" + finalName;
             try {
                 if (!session.exists(remoteDir)) {
                     session.mkdir(remoteDir);
                 }
-
-                String remotePath = remoteDir + "/" + localFile.getFileName();
-
                 try (InputStream is = Files.newInputStream(localFile)) {
-                    session.write(is, remotePath);
+                    session.write(is, tempPath);
                 }
-
-                log.info("[SFTP] upload_ok local={} remote={}", localFile.getFileName(), remotePath);
+                // SFTP v3 rename: not guaranteed atomic, but widely supported
+                session.rename(tempPath, remotePath);
+                log.info("[SFTP] upload_ok local={} remote={}", finalName, remotePath);
                 return null;
             } catch (Exception e) {
-                log.error("[SFTP] upload_fail local={}", localFile.getFileName(), e);
-                throw ErrorCode.SFTP_UPLOAD_FAIL.exception();
+                log.error("[SFTP] upload_fail local={}", finalName, e);
+                try {
+                    session.remove(tempPath);
+                } catch (Exception ignore) {}
+                throw new SftpException(ErrorCode.SFTP_UPLOAD_FAIL, true);
             }
         });
     }
