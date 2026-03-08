@@ -11,6 +11,8 @@ import org.mapstruct.Mapping;
 public interface OrderDomainMapper {
 
     @Mapping(target = "processed", constant = "false")
+    @Mapping(target = "status", constant = "UNPROCESSED")
+    @Mapping(target = "retryCount", constant = "0")
     @Mapping(target = "updated", expression = "java(java.time.LocalDateTime.now())")
     Outbox toOutbox(Order order);
 
