@@ -26,11 +26,19 @@ public class Outbox {
 
     private String price;
 
-    private String status;
+    @Builder.Default
+    private String status = "UNPROCESSED";
 
     private LocalDateTime updated;
 
     @Builder.Default
     private Boolean processed = false;
+
+    @Setter
+    @Builder.Default
+    private int retryCount = 0;
+
+    @Setter
+    private String lastErrorMsg;
 
 }
