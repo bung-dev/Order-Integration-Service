@@ -73,4 +73,63 @@ public class OutboxRepository {
                 .addValue("cutoffDate", cutoffDate);
         return template.update(sql, params);
     }
+
+    public List<Outbox> findTargetForProcess(String applicantKey, int maxRetry) {
+        String sql = """
+                SELECT APPLICANT_KEY, ORDER_ID, USER_ID, ITEM_ID, NAME, ADDRESS, ITEM_NAME, PRICE, STATUS, PROCESSED, RETRY_COUNT, LAST_ERROR_MSG
+                FROM OUTBOX_TB
+                WHERE APPLICANT_KEY = :applicantKey AND STATUS = 'UNPROCESSED' AND RETRY_COUNT < :maxRetry
+                """;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("applicantKey", applicantKey)
+                .addValue("maxRetry", maxRetry);
+        return template.query(sql, params, new BeanPropertyRowMapper<>(Outbox.class));
+    }
+
+    public int increaseRetryCount(String orderId, String errorMsg) {
+        String sql = """
+                UPDATE OUTBOX_TB
+                SET RETRY_COUNT = RETRY_COUNT + 1, LAST_ERROR_MSG = :errorMsg
+                WHERE ORDER_ID = :orderId
+                """;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("orderId", orderId)
+                .addValue("errorMsg", errorMsg);
+        return template.update(sql, params);
+    }
+
+    public int updateStatus(String orderId, String status) {
+        String sql = """
+                UPDATE OUTBOX_TB
+                SET STATUS = :status,
+                    PROCESSED = CASE WHEN :status = 'PROCESSED' THEN true ELSE PROCESSED END
+                WHERE ORDER_ID = :orderId
+                """;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("orderId", orderId)
+                .addValue("status", status);
+        return template.update(sql, params);
+    }
+
+    public List<Outbox> findFailed(String applicantKey) {
+        String sql = """
+                SELECT APPLICANT_KEY, ORDER_ID, USER_ID, ITEM_ID, NAME, ADDRESS, ITEM_NAME, PRICE, STATUS, PROCESSED, RETRY_COUNT, LAST_ERROR_MSG
+                FROM OUTBOX_TB
+                WHERE APPLICANT_KEY = :applicantKey AND STATUS = 'FAILED'
+                """;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("applicantKey", applicantKey);
+        return template.query(sql, params, new BeanPropertyRowMapper<>(Outbox.class));
+    }
+
+    public int resetFailed(String orderId) {
+        String sql = """
+                UPDATE OUTBOX_TB
+                SET STATUS = 'UNPROCESSED', RETRY_COUNT = 0, LAST_ERROR_MSG = NULL
+                WHERE ORDER_ID = :orderId
+                """;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("orderId", orderId);
+        return template.update(sql, params);
+    }
 }
