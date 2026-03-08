@@ -1,6 +1,7 @@
 package com.inspien.order.service;
 
 import com.inspien.common.config.properties.AppProperties;
+import com.inspien.common.health.BatchHealthIndicator;
 import com.inspien.mapper.OrderDomainMapper;
 import com.inspien.receiver.jdbc.OrderRepository;
 import com.inspien.receiver.jdbc.ShipmentRepository;
@@ -37,6 +38,7 @@ class ShipmentServiceTest {
     @Mock private SftpUploader sftpUploader;
     @Mock private AppProperties appProperties;
     @Mock private OrderDomainMapper orderDomainMapper;
+    @Mock private BatchHealthIndicator batchHealthIndicator;
 
     @Test
     @DisplayName("출고 대기 주문 처리 성공 시 상태 업데이트 확인")

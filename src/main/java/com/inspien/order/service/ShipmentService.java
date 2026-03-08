@@ -1,6 +1,7 @@
 package com.inspien.order.service;
 
 import com.inspien.common.config.properties.AppProperties;
+import com.inspien.common.health.BatchHealthIndicator;
 import com.inspien.mapper.OrderDomainMapper;
 import com.inspien.order.domain.Order;
 import com.inspien.order.domain.Outbox;
@@ -33,6 +34,7 @@ public class ShipmentService {
     private final IdGenerator idGenerator;
     private final AppProperties appProperties;
     private final OrderDomainMapper orderDomainMapper;
+    private final BatchHealthIndicator batchHealthIndicator;
 
     @Transactional
     public void run(String applicantKey) {
@@ -63,7 +65,8 @@ public class ShipmentService {
 
     @Transactional
     public void runOutbox(String applicantKey) {
-        List<Outbox> outboxes = outboxRepository.findUnprocessed(applicantKey);
+        int maxRetry = appProperties.getMaxRetry();
+        List<Outbox> outboxes = outboxRepository.findTargetForProcess(applicantKey, maxRetry);
         if (outboxes.isEmpty()) {
             log.info("[BATCH OUTBOX] no_pending");
             return;
@@ -71,24 +74,48 @@ public class ShipmentService {
 
         log.info("[BATCH OUTBOX] found={}", outboxes.size());
 
-        List<Order> orders = outboxes.stream()
-                .map(orderDomainMapper::toOrder)
-                .toList();
+        int successCount = 0;
+        for (Outbox outbox : outboxes) {
+            String orderId = outbox.getOrderId();
+            try {
+                Order order = orderDomainMapper.toOrder(outbox);
+                Path file = fileWriter.write(List.of(order), appProperties.getParticipantName());
+                log.info("[BATCH OUTBOX:FILE] created file={} orderId={}", file.getFileName(), orderId);
 
-        try {
-            Path file = fileWriter.write(orders, appProperties.getParticipantName());
-            log.info("[BATCH OUTBOX:FILE] created file={}", file.getFileName());
+                sftpUploader.upload(file);
+                log.info("[BATCH OUTBOX:SFTP] upload_ok file={} orderId={}", file.getFileName(), orderId);
 
-            sftpUploader.upload(file);
-            log.info("[BATCH OUTBOX:SFTP] upload_ok file={}", file.getFileName());
-
-            List<String> orderIds = outboxes.stream().map(Outbox::getOrderId).toList();
-            int updated = outboxRepository.updateProcessed(applicantKey, orderIds);
-            log.info("[BATCH OUTBOX] processed={}", updated);
-
-        } catch (Exception e) {
-            log.error("[BATCH OUTBOX] process_fail", e);
+                outboxRepository.updateStatus(orderId, "PROCESSED");
+                successCount++;
+            } catch (Exception e) {
+                String rawMsg = e.getMessage();
+                String errorMsg = rawMsg == null ? "unknown error" : rawMsg.length() > 500 ? rawMsg.substring(0, 500) : rawMsg;
+                outboxRepository.increaseRetryCount(orderId, errorMsg);
+                int newRetryCount = outbox.getRetryCount() + 1;
+                if (newRetryCount >= maxRetry) {
+                    outboxRepository.updateStatus(orderId, "FAILED");
+                    log.error("[BATCH OUTBOX] max_retry_exceeded orderId={} retryCount={}", orderId, newRetryCount);
+                } else {
+                    log.warn("[BATCH OUTBOX] process_fail orderId={} retryCount={} error={}", orderId, newRetryCount, errorMsg);
+                }
+            }
         }
+
+        log.info("[BATCH OUTBOX] done total={} success={}", outboxes.size(), successCount);
+        if (successCount > 0) {
+            batchHealthIndicator.recordSuccess();
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<Outbox> getFailedOutboxes(String applicantKey) {
+        return outboxRepository.findFailed(applicantKey);
+    }
+
+    @Transactional
+    public void retryFailed(String orderId) {
+        outboxRepository.resetFailed(orderId);
+        log.info("[BATCH OUTBOX] retry_failed_reset orderId={}", orderId);
     }
 
     @Transactional
